@@ -88,5 +88,36 @@ nav .fab { width:58px; height:58px; border-radius:50%; margin-top:-30px; padding
 #lock { position:fixed; inset:0; background:var(--bg); z-index:20; display:flex; align-items:center; justify-content:center; } .lockbox { width:270px; text-align:center; } .lockbox input { text-align:center; margin-bottom:10px; font-size:1.4rem; letter-spacing:.3em; }
 #toast { position:fixed; left:50%; transform:translateX(-50%); bottom:104px; background:var(--solid); border:1px solid var(--accent); color:var(--text); padding:11px 18px; border-radius:999px; z-index:30; max-width:90%; font-size:.88rem; box-shadow:0 0 18px var(--glow); animation:rise .2s ease both; } #toast.bad { border-color:var(--neg); }
 
-@media (min-width:900px) { #app { max-width:980px; } .grid { grid-template-columns:repeat(4,1fr); } .themes { grid-template-columns:repeat(3,1fr); } }
 @media (prefers-reduced-motion: reduce) { * { animation:none !important; transition:none !important; } }
+
+/* ===== Dashboard components ===== */
+.dashbar { display:flex; flex-wrap:wrap; gap:10px; justify-content:space-between; align-items:center; margin:4px 0 14px; }
+.dashbar .seg { margin:0; flex:1 1 320px; max-width:520px; }
+.rangebar { display:flex; flex-wrap:wrap; gap:6px; align-items:center; } .rangebar .chip { padding:7px 12px; font-size:.8rem; } .rangebar input[type=date] { width:auto; padding:7px 8px; font-size:.8rem; }
+.stats { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; margin-bottom:12px; } .stats .card { margin:0; }
+.stat .big { margin-top:4px; } .info { display:inline-flex; width:14px; height:14px; border-radius:50%; border:1px solid var(--muted); align-items:center; justify-content:center; font-size:.6rem; font-style:italic; cursor:help; margin-left:3px; }
+.charts { display:grid; grid-template-columns:1fr; gap:12px; margin-bottom:12px; } .charts .card { margin:0; } .charts h3, .card h3 { margin:0 0 8px; }
+.gauge { position:relative; width:150px; margin:6px auto 0; text-align:center; } .gauge svg { width:150px; height:86px; display:block; }
+.gt { fill:none; stroke:var(--line); stroke-width:12; stroke-linecap:round; } .gf { fill:none; stroke:url(#gg); stroke-width:12; stroke-linecap:round; filter:drop-shadow(0 0 4px var(--glow)); }
+.g1 { stop-color:var(--neg); } .g2 { stop-color:var(--accent); } .g3 { stop-color:var(--pos); }
+.gv { position:absolute; left:0; right:0; top:42px; font-size:1.3rem; font-weight:800; font-family:var(--mono); } .gauge .small { margin-top:2px; }
+.donutw { display:flex; align-items:center; gap:14px; justify-content:center; flex-wrap:wrap; } .donut { position:relative; width:112px; height:112px; flex:none; } .donut svg { width:112px; height:112px; }
+.dt { fill:none; stroke:var(--line); stroke-width:15; } .da { fill:none; stroke-width:15; } .da.c-pos, .lg.c-pos { stroke:var(--pos); background:var(--pos); } .da.c-neg, .lg.c-neg { stroke:var(--neg); background:var(--neg); } .da.c-mute, .lg.c-mute { stroke:var(--muted); background:var(--muted); } .da.c-acc, .lg.c-acc { stroke:var(--accent); background:var(--accent); }
+.dc { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; font-weight:800; font-family:var(--mono); font-size:1.1rem; line-height:1.1; }
+.legend { font-size:.8rem; display:grid; gap:4px; } .lg { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px; }
+.bars .b-pos { fill:var(--pos); } .bars .b-neg { fill:var(--neg); } .bars .b-acc { fill:var(--accent); } .bars rect { opacity:.9; } .bars rect:hover { opacity:1; filter:drop-shadow(0 0 4px var(--glow)); } .bl { fill:var(--muted); font-size:10px; text-anchor:middle; }
+.brand { display:none; align-items:center; gap:10px; font-weight:800; letter-spacing:.05em; padding:6px 10px 16px; } .logo { width:26px; height:26px; border-radius:8px; background:linear-gradient(135deg, var(--accent), var(--accent2)); box-shadow:0 0 14px var(--glow); }
+nav .fab span { display:none; }
+
+/* ===== Chromebook / wide windows: sidebar layout ===== */
+@media (min-width:900px) {
+  #app { max-width:1240px; margin:0 0 0 252px; padding:24px 28px 48px; }
+  nav { left:14px; right:auto; top:14px; bottom:14px; width:222px; max-width:none; margin:0; flex-direction:column; justify-content:flex-start; align-items:stretch; gap:6px; padding:14px 10px; border-radius:24px; }
+  nav .brand { display:flex; }
+  nav button { flex-direction:row; justify-content:flex-start; gap:12px; font-size:.95rem; padding:12px 14px; border-radius:14px; }
+  nav button.on { background:rgba(127,127,127,.14); }
+  nav .fab { width:auto; height:auto; margin:10px 0; border:0; border-radius:14px; justify-content:center; padding:14px; } nav .fab span { display:inline; font-weight:800; } nav .fab .ico { width:22px; height:22px; }
+  .stats { grid-template-columns:repeat(4,1fr); } .charts { grid-template-columns:repeat(2,1fr); } .themes { grid-template-columns:repeat(3,1fr); }
+  .savebar { bottom:12px; } #toast { bottom:28px; margin-left:126px; }
+  .grid3 { max-width:760px; }
+}

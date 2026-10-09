@@ -11,11 +11,11 @@ const UI = (() => {
     home: '<path d="M3 11l9-8 9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
     trades: '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
     log: '<path d="M12 5v14M5 12h14"/>',
-    insights: '<path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/>',
+    prop: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/>',
     more: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>',
   };
   const svgIcon = (k) => `<svg viewBox="0 0 24 24" class="ico">${ICON[k]}</svg>`;
-  const TABS = [['home', 'Home'], ['trades', 'Trades'], ['log', 'Log'], ['insights', 'Insights'], ['more', 'More']];
+  const TABS = [['home', 'Dashboard'], ['trades', 'Trades'], ['log', 'Log trade'], ['prop', 'Prop'], ['more', 'Settings']];
   const THEMES = [
     { id: 'neon', name: 'Neon Grid', c: ['#00e5ff', '#ff2bd6'] }, { id: 'gold', name: 'Gold Terminal', c: ['#f5c242', '#ff8a00'] },
     { id: 'aurora', name: 'Aurora', c: ['#7cffcb', '#8b5cf6'] }, { id: 'matrix', name: 'Matrix', c: ['#39ff14', '#00b36b'] },
@@ -23,7 +23,7 @@ const UI = (() => {
   ];
   const ACCENTS = ['#00e5ff', '#f5c242', '#ff2bd6', '#39ff14', '#ff6b35', '#8b5cf6'];
   const ui = {
-    tab: 'home', sub: 'stats', modal: null, forms: {}, acct: 'all', days: 'all', needsSl: false, cal: new Date(), revKind: 'week', revRef: new Date(),
+    tab: 'home', dash: 'overview', range: { preset: 'all', from: '', to: '' }, modal: null, forms: {}, acct: 'all', days: 'all', needsSl: false, cal: new Date(), revKind: 'week', revRef: new Date(),
     calc: { acct: '', mode: 'pct', risk: '1', entry: '', sl: '' }, editId: null, preview: null, previewAcct: null, acctEdit: null,
     confirm: null, lastAcct: null, locked: false,
   };
@@ -92,7 +92,7 @@ const UI = (() => {
     return {
       direction: prev?.direction || 'long', session: Core.sessionFromUtcHour(new Date().getUTCHours()), setup: null, timeframe: null,
       mistakes: [], checklist: {}, shot: null, shotId: null,
-      v: { accountId: prev?.v.accountId || ui.lastAcct || d.accounts[0].id, lots: prev?.v.lots || '', followed: 'auto', closed: Core.toLocalInput(), eb: '', ea: '', tags: '', notes: '', entry: '', exit: '', sl: '', tp: '', fees: '' },
+      v: { accountId: prev?.v.accountId || ui.lastAcct || d.accounts[0].id, lots: prev?.v.lots || '', followed: 'auto', closed: Core.toLocalInput(), opened: '', eb: '', ea: '', tags: '', notes: '', entry: '', exit: '', sl: '', tp: '', fees: '' },
     };
   }
   function formFromTrade(t) {
@@ -101,7 +101,7 @@ const UI = (() => {
       shot: null, shotId: t.screenshotId || null,
       v: {
         accountId: t.accountId, entry: String(t.entry), exit: String(t.exit), sl: t.sl ?? '', tp: t.tp ?? '', lots: String(t.lots), fees: t.fees ? String(Math.round(t.fees * 100) / 100) : '',
-        followed: t.followedPlan === true ? 'yes' : t.followedPlan === false ? 'no' : 'auto', closed: Core.toLocalInput(t.closedAt),
+        followed: t.followedPlan === true ? 'yes' : t.followedPlan === false ? 'no' : 'auto', closed: Core.toLocalInput(t.closedAt), opened: t.openedAt ? Core.toLocalInput(t.openedAt) : '',
         eb: t.emotionBefore || '', ea: t.emotionAfter || '', tags: (t.tags || []).join(', '), notes: t.notes || '',
       },
     };
@@ -132,7 +132,10 @@ const UI = (() => {
       <label class="lbl">Timeframe</label>${chips('timeframe', s.timeframes)}
       <details class="more" ${p === 'e' ? 'open' : ''}><summary>More: rules, psychology, notes, screenshot</summary>
         <div class="row">
-          <div class="field"><label>Closed at</label><input type="datetime-local" data-form="${p}" data-k="closed" value="${val('closed')}"></div>
+          <div class="field"><label>Opened at (optional)</label><input type="datetime-local" id="${p}-opened" data-form="${p}" data-k="opened" value="${val('opened')}"></div>
+          <div class="field"><label>Closed at</label><input type="datetime-local" id="${p}-closed" data-form="${p}" data-k="closed" value="${val('closed')}"></div>
+        </div>
+        <div class="row">
           <div class="field"><label>Fees (commission + swap, negative)</label><input data-form="${p}" data-k="fees" inputmode="decimal" value="${val('fees')}"></div>
         </div>
         <label class="lbl">Pre-trade checklist</label>
@@ -190,10 +193,12 @@ const UI = (() => {
     else if (f.v.followed === 'no') followedPlan = false;
     else if (ticked > 0) followedPlan = ticked === s.rules.length;
     const closed = f.v.closed ? new Date(f.v.closed) : new Date();
+    const opened = f.v.opened ? new Date(f.v.opened) : null;
+    if (opened && !Number.isNaN(opened.getTime()) && opened.getTime() > closed.getTime()) return { error: 'Opened time must be before closed time.' };
     return {
       trade: {
         accountId: f.v.accountId, instrument: 'XAUUSD', direction: f.direction, entry, exit, sl, tp, lots, fees, pnl: c.pnl, r: c.r, plannedRR: c.plannedRR,
-        session: f.session, setup: f.setup, timeframe: f.timeframe, closedAt: (Number.isNaN(closed.getTime()) ? new Date() : closed).toISOString(),
+        session: f.session, setup: f.setup, timeframe: f.timeframe, closedAt: (Number.isNaN(closed.getTime()) ? new Date() : closed).toISOString(), openedAt: opened && !Number.isNaN(opened.getTime()) ? opened.toISOString() : null,
         followedPlan, checklist: { ...f.checklist }, emotionBefore: f.v.eb || null, emotionAfter: f.v.ea || null, mistakes: [...f.mistakes],
         tags: f.v.tags.split(',').map((x) => x.trim()).filter(Boolean), notes: f.v.notes.trim(),
       },
@@ -212,7 +217,7 @@ const UI = (() => {
     }
     t.screenshotId = shotId || null;
     if (p === 'n') {
-      Object.assign(t, { id: Core.newId(), source: 'manual', ticket: null, openedAt: null });
+      Object.assign(t, { id: Core.newId(), source: 'manual', ticket: null });
       D().trades.push(t);
       ui.lastAcct = t.accountId;
       ui.forms.n = freshForm(f);
@@ -273,35 +278,6 @@ const UI = (() => {
       <polygon points="${area}" fill="url(#eqg)"/><line x1="${P}" x2="${W - P}" y1="${sy(base)}" y2="${sy(base)}" class="base"/><polyline points="${pts}" class="line"/></svg>${mini ? '' : `<div class="muted small">Low ${fmt(min)} · High ${fmt(max)} · ${vals.length - 1} trades</div>`}`;
   }
 
-  function vStats() {
-    let ts = scoped();
-    if (ui.days !== 'all') { const cut = Date.now() - Number(ui.days) * 86400000; ts = ts.filter((t) => new Date(t.closedAt).getTime() >= cut); }
-    const base = startBalance();
-    const head = `<h2>Stats</h2><div class="row">${acctSelect('acct', ui.acct, true)}
-      <select data-bind="days">${[['all', 'All time'], ['7', '7 days'], ['30', '30 days'], ['90', '90 days']].map(([v, l]) => `<option value="${v}" ${ui.days === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>`;
-    if (!ts.length) return head + '<p class="muted">No trades in this range.</p>';
-    const s = Core.summarize(ts, base);
-    const hours = Core.groupStats(ts, Core.hourOf);
-    hours.sort((a, b) => a.key.localeCompare(b.key));
-    const bw = Core.bestWorstHours(hours, 3);
-    const emo = Core.groupStats(ts, (t) => t.emotionBefore);
-    return head + `
-      <div class="grid">
-        ${card('Net P&L', money(s.net), cls(s.net))}${card('Win rate', fmt(s.winRate, 1) + '%')}
-        ${card('Profit factor', s.profitFactor === Infinity ? '∞' : fmt(s.profitFactor))}${card('Expectancy', money(s.expectancy) + (s.expectancyR != null ? ` · ${fmt(s.expectancyR)}R` : ''), cls(s.expectancy))}
-        ${card('Avg planned RR', fmt(s.avgPlannedRR))}${card('Max drawdown', fmt(s.dd.abs) + ` (${fmt(s.dd.pct, 1)}%)`, 'neg')}
-        ${card('Avg win / loss', `${fmt(s.avgWin)} / ${fmt(s.avgLoss)}`)}${card('Best / worst', `${money(s.best)} / ${money(s.worst)}`)}
-      </div>
-      <h3>Equity curve</h3>${lineSvg(Core.equityCurve(ts, base), base)}
-      ${tbl('By session', Core.groupStats(ts, (t) => t.session, ['Asia', 'London', 'NY']))}
-      ${tbl('By day of week', Core.groupStats(ts, Core.dowOf, Core.DOW))}
-      ${tbl('By setup', Core.groupStats(ts, (t) => t.setup))}
-      ${tbl('By hour (your local time)', hours, bw ? `Best ${bw.best.key} (${money(bw.best.net)}), worst ${bw.worst.key} (${money(bw.worst.net)}), hours with 3+ trades only.` : 'Best and worst windows appear once an hour has 3+ trades.')}
-      ${tbl('Rules: followed vs broken', Core.groupStats(ts, Core.adherenceKey, ['Followed plan', 'Broke plan']))}
-      ${tbl('Mistakes', Core.groupStats(ts, (t) => t.mistakes))}
-      ${tbl('Emotion before the trade', emo)}`;
-  }
-
   function bar(label, used, limit, pct, bad) {
     const w = Math.min(100, Math.max(0, pct));
     return `<div class="barwrap"><div class="small">${label}: ${fmt(used)} / ${fmt(limit)} (${fmt(pct, 0)}%)</div><div class="bar"><div class="fill ${bad ? 'bad' : pct > 70 ? 'warnbar' : ''}" style="width:${w}%"></div></div></div>`;
@@ -360,7 +336,7 @@ const UI = (() => {
     const saved = D().reviews[r.key] || {};
     const label = r.kind === 'week' ? `Week of ${r.start.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}` : r.start.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
     const ta = (k, l) => `<div class="field"><label>${l}</label><textarea rows="3" id="rv-${k}">${esc(saved[k])}</textarea></div>`;
-    return `<h2>Calendar</h2><div class="row between">${acctSelect('acct', ui.acct, true)}
+    return `<h2>Calendar</h2><div class="row between"><span></span>
         <span><button class="btn ghost" data-act="cal-prev">‹</button> <b>${cal.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</b> <button class="btn ghost" data-act="cal-next">›</button></span></div>
       <div class="cal"><div class="dow">Mon</div><div class="dow">Tue</div><div class="dow">Wed</div><div class="dow">Thu</div><div class="dow">Fri</div><div class="dow">Sat</div><div class="dow">Sun</div>${heat}</div>
       <h2>Review</h2>
@@ -393,38 +369,170 @@ const UI = (() => {
       ${p.dailyBreached || p.ddBreached ? `<div class="neg small">${p.dailyBreached ? 'DAILY LOSS LIMIT HIT. ' : ''}${p.ddBreached ? 'MAX DRAWDOWN HIT.' : ''}</div>` : ''}</div>`;
   }
 
-  function vHome() {
-    const ts = scoped(); const sorted = Core.sortTrades(ts);
-    const todayKey = Core.localDateKey(new Date());
-    const today = ts.filter((t) => Core.localDateKey(t.closedAt) === todayKey);
-    const tp = Core.sum(today.map((t) => t.pnl));
-    const last30 = sorted.slice(-30);
-    const win30 = last30.length ? (last30.filter((t) => t.pnl > 0).length / last30.length) * 100 : null;
+  // ---------- dashboard: charts ----------
+  const PRESETS = [['all', 'All'], ['7', '7D'], ['30', '30D'], ['90', '90D'], ['ytd', 'YTD']];
+  function rangeBounds() {
+    const r = ui.range;
+    if (r.preset === 'all') return [null, null];
+    if (r.preset === 'ytd') return [new Date(new Date().getFullYear(), 0, 1).getTime(), null];
+    if (r.preset === 'custom') return [r.from ? new Date(r.from + 'T00:00:00').getTime() : null, r.to ? new Date(r.to + 'T23:59:59.999').getTime() : null];
+    return [Date.now() - Number(r.preset) * 86400000, null];
+  }
+  const inRangeTrades = (ts) => { const [a, b] = rangeBounds(); return ts.filter((t) => { const ms = new Date(t.closedAt).getTime(); return (a == null || ms >= a) && (b == null || ms <= b); }); };
+
+  const fmtDur = (ms) => {
+    if (ms == null) return '–';
+    const s = Math.round(ms / 1000); const h = Math.floor(s / 3600); const m = Math.floor((s % 3600) / 60);
+    return h ? `${h}h ${m}m` : m ? `${m}m ${s % 60}s` : `${s}s`;
+  };
+  function avgDuration(ts) {
+    const d = ts.filter((t) => t.openedAt && t.closedAt && new Date(t.closedAt) > new Date(t.openedAt)).map((t) => new Date(t.closedAt) - new Date(t.openedAt));
+    return d.length ? Core.sum(d) / d.length : null;
+  }
+
+  function gauge(p, sub) {
+    const C = Math.PI * 58; const v = Math.max(0, Math.min(100, p || 0));
+    return `<div class="gauge"><svg viewBox="0 0 140 80"><defs><linearGradient id="gg" x1="0" x2="1"><stop offset="0" class="g1"/><stop offset=".5" class="g2"/><stop offset="1" class="g3"/></linearGradient></defs>
+      <path d="M12 72 A58 58 0 0 1 128 72" class="gt"/><path d="M12 72 A58 58 0 0 1 128 72" class="gf" stroke-dasharray="${((C * v) / 100).toFixed(1)} ${C.toFixed(1)}"/></svg>
+      <div class="gv">${p == null ? '–' : fmt(p, 1) + '%'}</div>${sub ? `<div class="muted small">${sub}</div>` : ''}</div>`;
+  }
+
+  function donut(segs, center) {
+    const tot = Core.sum(segs.map((s) => s.v)); const R = 44; const C = 2 * Math.PI * R; let off = 0;
+    const arcs = tot > 0 ? segs.filter((s) => s.v > 0).map((s) => {
+      const d = (C * s.v) / tot;
+      const el = `<circle cx="60" cy="60" r="${R}" class="da ${s.cls}" stroke-dasharray="${d.toFixed(1)} ${(C - d).toFixed(1)}" stroke-dashoffset="${(-off).toFixed(1)}" transform="rotate(-90 60 60)"/>`;
+      off += d; return el;
+    }).join('') : '';
+    return `<div class="donutw"><div class="donut"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="${R}" class="dt"/>${arcs}</svg><div class="dc">${center}</div></div>
+      <div class="legend">${segs.map((s) => `<div><i class="lg ${s.cls}"></i>${esc(s.label)} <b>${s.text ?? s.v}</b></div>`).join('')}</div></div>`;
+  }
+
+  // rows: [{label, short?, v, c?}]. Bars go up for positive, down for negative, with a zero line.
+  function barChart(rows, o = {}) {
+    if (!rows.length) return '<p class="muted small">No data in this range.</p>';
+    const W = 600; const H = o.h || 170; const P = 8; const top = 14; const bot = 22;
+    const max = Math.max(0, ...rows.map((r) => r.v)); const min = Math.min(0, ...rows.map((r) => r.v));
+    const span = max - min || 1; const plot = H - top - bot; const y0 = top + (plot * max) / span;
+    const bw = (W - 2 * P) / rows.length; const w = Math.max(2, bw * 0.68);
+    const bars = rows.map((r, i) => {
+      const h = (Math.abs(r.v) * plot) / span; const x = P + i * bw + (bw - w) / 2; const y = r.v >= 0 ? y0 - h : y0;
+      const c = r.c || (o.neutral ? 'b-acc' : r.v >= 0 ? 'b-pos' : 'b-neg');
+      return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${Math.max(h, 1).toFixed(1)}" rx="3" class="${c}"><title>${esc(r.label)}: ${(o.fmt || money)(r.v)}</title></rect>`;
+    }).join('');
+    const every = rows.length > 14 ? Math.ceil(rows.length / 10) : 1;
+    const labs = rows.map((r, i) => (i % every ? '' : `<text x="${(P + i * bw + bw / 2).toFixed(1)}" y="${H - 6}" class="bl">${esc(r.short ?? r.label)}</text>`)).join('');
+    return `<svg viewBox="0 0 ${W} ${H}" class="chart bars"><line x1="${P}" x2="${W - P}" y1="${y0.toFixed(1)}" y2="${y0.toFixed(1)}" class="base"/>${bars}${labs}</svg>`;
+  }
+
+  const stat = (label, value, tip, c = '') => `<div class="card stat"><div class="muted small">${label} <span class="info" title="${esc(tip)}">i</span></div><div class="big ${c}">${value}</div></div>`;
+  const netBars = (rows) => barChart(rows.map((r) => ({ label: String(r.key), v: r.net })));
+  const block = (title, rows, note) => (rows.length ? `<div class="card"><h3>${title}</h3>${note ? `<p class="muted small">${note}</p>` : ''}${netBars(rows)}${tbl('', rows)}</div>` : '');
+  const emptyMsg = '<div class="card center muted">No trades in this range. Change the range or log a trade.</div>';
+
+  function dashOverview(ts) {
+    const all = scoped(); const s = Core.summarize(ts, startBalance());
+    const bal = startBalance() + Core.sum(all.map((t) => t.pnl));
+    let top = emptyMsg;
+    if (s.n) {
+      const fees = Core.sum(ts.map((t) => t.fees || 0)); const be = s.n - s.wins - s.losses;
+      const daily = Object.entries(Core.dailyMap(ts)).sort((a, b) => a[0].localeCompare(b[0])).slice(-45).map(([k, v]) => ({ label: k, short: k.slice(5), v: v.pnl }));
+      const dir = Core.groupStats(ts, (t) => (t.direction === 'long' ? 'Long' : 'Short'));
+      top = `<div class="stats">
+          ${stat('Realized P&L', money(s.net), 'Net result of all closed trades in range, after fees.', cls(s.net))}
+          <div class="card stat"><div class="muted small">Win rate <span class="info" title="Share of trades that closed in profit.">i</span></div>${gauge(s.winRate, `${s.wins} of ${s.n} trades`)}</div>
+          <div class="card stat"><div class="muted small">Avg win vs loss <span class="info" title="Average winning trade against average losing trade. The number in the middle is win / loss.">i</span></div>${donut([{ v: s.avgWin, cls: 'c-pos', label: 'Avg win', text: fmt(s.avgWin) }, { v: s.avgLoss, cls: 'c-neg', label: 'Avg loss', text: fmt(s.avgLoss) }], s.avgLoss > 0 ? fmt(s.avgWin / s.avgLoss) : '–')}</div>
+          ${stat('Profit factor', s.profitFactor === Infinity ? '∞' : fmt(s.profitFactor), 'Gross profit divided by gross loss. Above 1 means profitable.')}
+          ${stat('Expected value', money(s.expectancy) + (s.expectancyR != null ? ` · ${fmt(s.expectancyR)}R` : ''), 'Average result per trade, in money and in R (only trades with an SL count for R).', cls(s.expectancy))}
+          ${stat('Avg trade time', fmtDur(avgDuration(ts)), 'Needs an opened time on the trade. Imported trades have it; for typed trades fill in "Opened at".')}
+          ${stat('Balance', fmt(bal), 'Starting balance plus every closed trade, all time, for the selected account(s).')}
+          ${stat('Total fees', money(fees), 'Commission plus swap on trades in range.', cls(fees))}
+        </div>
+        <div class="stats">
+          ${stat('Max drawdown', fmt(s.dd.abs) + ` (${fmt(s.dd.pct, 1)}%)`, 'Largest drop from a peak in range.', 'neg')}
+          ${stat('Avg planned RR', fmt(s.avgPlannedRR), 'Average reward-to-risk you planned (needs TP and SL).')}
+          ${stat('Best trade', money(s.best), 'Largest single winner.', 'pos')}
+          ${stat('Worst trade', money(s.worst), 'Largest single loser.', 'neg')}
+        </div>
+        <div class="charts">
+          <div class="card"><h3>Cumulative P&amp;L</h3>${lineSvg(Core.equityCurve(ts, 0), 0)}</div>
+          <div class="card"><h3>Daily P&amp;L</h3>${barChart(daily)}</div>
+          <div class="card"><h3>Wins, losses, break-even</h3>${donut([{ v: s.wins, cls: 'c-pos', label: 'Wins' }, { v: s.losses, cls: 'c-neg', label: 'Losses' }, { v: be, cls: 'c-mute', label: 'Break-even' }], `${s.n}<div class="small muted">trades</div>`)}</div>
+          <div class="card"><h3>Long vs short (net)</h3>${netBars(dir)}${tbl('', dir)}</div>
+        </div>`;
+    }
+    // today / discipline / streak ignore the range filter on purpose
+    const sorted = Core.sortTrades(all); const todayKey = Core.localDateKey(new Date());
+    const today = all.filter((t) => Core.localDateKey(t.closedAt) === todayKey); const tp = Core.sum(today.map((t) => t.pnl));
     const rated = sorted.filter((t) => t.followedPlan != null).slice(-20);
     const disc = rated.length ? (rated.filter((t) => t.followedPlan).length / rated.length) * 100 : null;
-    const streak = Core.dayStreak(ts);
+    const streak = Core.dayStreak(all);
     const accts = ui.acct === 'all' ? D().accounts : D().accounts.filter((a) => a.id === ui.acct);
-    const todayWins = today.filter((t) => t.pnl > 0).length;
-    return `<div class="row between hero"><div><div class="muted small">${new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</div><h1>${greeting()}</h1></div>${acctSelect('acct', ui.acct, true)}</div>
-      <div class="card glass pnlhero"><div class="muted small caps">Today</div>
-        <div class="huge ${cls(tp)}">${today.length ? money(tp) : '0.00'}</div>
-        <div class="muted small">${today.length} trade${today.length === 1 ? '' : 's'}${today.length ? ` · ${todayWins} win${todayWins === 1 ? '' : 's'}` : ''}</div>
-        ${last30.length > 1 ? `<div class="spark">${lineSvg(Core.equityCurve(last30, 0), 0, true)}</div><div class="muted small">Last ${last30.length} trades</div>` : ''}</div>
+    return `${top}
       <div class="grid3">
+        <div class="card center"><div class="muted small caps">Today</div><div class="big ${cls(tp)}">${today.length ? money(tp) : '0.00'}</div><div class="muted small">${today.length} trade${today.length === 1 ? '' : 's'}</div></div>
         <div class="card center">${ring(disc, 'Discipline', disc == null ? '–' : Math.round(disc) + '%', disc != null && disc < 60 ? 'bad' : '')}</div>
-        <div class="card center">${ring(win30, 'Win rate', win30 == null ? '–' : Math.round(win30) + '%')}</div>
         <div class="card center"><div class="streak">${streak}</div><div class="muted small">Green day${streak === 1 ? '' : 's'} in a row</div></div>
       </div>
-      <button class="btn primary cta" data-act="tab" data-v="log">+ Log a trade</button>
-      <h3 class="caps">Prop accounts</h3>${accts.map(propMini).join('')}
+      <h3 class="caps">Prop accounts</h3><div class="charts">${accts.map(propMini).join('')}</div>
       <h3 class="caps">Recent trades</h3>
       ${sorted.length ? sorted.slice(-5).reverse().map(tradeRow).join('') : '<div class="card center muted">No trades yet. Log your first one and your dashboard comes alive.</div>'}`;
   }
 
-  function vInsights() {
-    const subs = [['stats', 'Stats'], ['prop', 'Prop'], ['review', 'Calendar · Review']];
-    const body = ui.sub === 'prop' ? vProp() : ui.sub === 'review' ? vReview() : vStats();
-    return `<div class="seg">${subs.map(([k, l]) => `<button class="${ui.sub === k ? 'on' : ''}" data-act="sub" data-v="${k}">${l}</button>`).join('')}</div>${body}`;
+  function dashTime(ts) {
+    if (!ts.length) return emptyMsg;
+    const sess = Core.groupStats(ts, (t) => t.session, ['Asia', 'London', 'NY']);
+    const dow = Core.groupStats(ts, Core.dowOf, Core.DOW);
+    const hours = Core.groupStats(ts, Core.hourOf).sort((a, b) => a.key.localeCompare(b.key));
+    const bw = Core.bestWorstHours(hours, 3);
+    const top = (rows) => (rows.length ? [...rows].sort((a, b) => b.net - a.net)[0] : null);
+    const bs = top(sess); const bd = top(dow);
+    return `<div class="stats">
+        ${stat('Avg trade time', fmtDur(avgDuration(ts)), 'Average time from open to close (trades with an opened time).')}
+        ${stat('Avg time in winners', fmtDur(avgDuration(ts.filter((t) => t.pnl > 0))), 'Holding time of winning trades.')}
+        ${stat('Avg time in losers', fmtDur(avgDuration(ts.filter((t) => t.pnl < 0))), 'Holding time of losing trades. Much longer than winners can mean you hold losses.')}
+        ${stat('Best session', bs ? `${esc(bs.key)} ${money(bs.net)}` : '–', 'Session with the highest net P&L.', bs ? cls(bs.net) : '')}
+        ${stat('Best weekday', bd ? `${esc(bd.key)} ${money(bd.net)}` : '–', 'Weekday with the highest net P&L.', bd ? cls(bd.net) : '')}
+        ${stat('Best hour', bw ? `${bw.best.key} ${money(bw.best.net)}` : '–', 'Best local hour, among hours with 3+ trades.', bw ? cls(bw.best.net) : '')}
+        ${stat('Worst hour', bw ? `${bw.worst.key} ${money(bw.worst.net)}` : '–', 'Worst local hour, among hours with 3+ trades.', bw ? cls(bw.worst.net) : '')}
+        ${stat('Trades', String(ts.length), 'Trades in the selected range.')}
+      </div>
+      <div class="charts">
+        <div class="card"><h3>P&amp;L by session</h3>${netBars(sess)}${tbl('', sess)}</div>
+        <div class="card"><h3>P&amp;L by weekday</h3>${netBars(dow)}${tbl('', dow)}</div>
+      </div>
+      <div class="card"><h3>P&amp;L by hour (your local time)</h3>${barChart(hours.map((r) => ({ label: r.key, short: r.key.slice(0, 2), v: r.net })))}${bw ? '' : '<p class="muted small">Best and worst hours appear once an hour has 3+ trades.</p>'}</div>`;
+  }
+
+  function dashAnalytics(ts) {
+    if (!ts.length) return emptyMsg;
+    const edges = [['≤ −2R', -Infinity, -2], ['−2 to −1', -2, -1], ['−1 to 0', -1, 0], ['0 to 1', 0, 1], ['1 to 2', 1, 2], ['2 to 3', 2, 3], ['≥ 3R', 3, Infinity]];
+    const rs = ts.filter((t) => t.r != null).map((t) => t.r);
+    const hist = edges.map(([label, lo, hi]) => ({ label, v: rs.filter((r) => (lo === -Infinity ? r < hi : hi === Infinity ? r >= lo : r >= lo && r < hi)).length, c: hi <= 0 ? 'b-neg' : lo >= 0 ? 'b-pos' : 'b-acc' }));
+    return `${rs.length ? `<div class="card"><h3>R-multiple distribution</h3><p class="muted small">How many trades ended in each R range (${rs.length} trades with an SL).</p>${barChart(hist, { fmt: (v) => v + ' trades', h: 150 })}</div>` : ''}
+      <div class="charts">
+        ${block('By setup', Core.groupStats(ts, (t) => t.setup))}
+        ${block('Rules: followed vs broken', Core.groupStats(ts, Core.adherenceKey, ['Followed plan', 'Broke plan']), 'Trades where you rated the plan (checklist or the Followed plan field).')}
+        ${block('Mistakes', Core.groupStats(ts, (t) => t.mistakes), 'A trade with two mistakes counts under both.')}
+        ${block('Emotion before the trade', Core.groupStats(ts, (t) => t.emotionBefore))}
+        ${block('By timeframe', Core.groupStats(ts, (t) => t.timeframe))}
+        ${block('By instrument', Core.groupStats(ts, (t) => t.instrument))}
+      </div>`;
+  }
+
+  function rangeBar() {
+    const r = ui.range;
+    return `<div class="rangebar">${PRESETS.map(([k, l]) => `<button class="chip ${r.preset === k ? 'on' : ''}" data-act="range" data-v="${k}">${l}</button>`).join('')}
+      <input type="date" data-range="from" value="${esc(r.from)}" aria-label="From date"><span class="muted">–</span><input type="date" data-range="to" value="${esc(r.to)}" aria-label="To date"></div>`;
+  }
+
+  function vHome() {
+    const tabs = [['overview', 'Overview'], ['time', 'Time Metrics'], ['analytics', 'Analytics'], ['calendar', 'Calendar']];
+    const ts = inRangeTrades(scoped());
+    const body = ui.dash === 'time' ? dashTime(ts) : ui.dash === 'analytics' ? dashAnalytics(ts) : ui.dash === 'calendar' ? vReview() : dashOverview(ts);
+    return `<div class="row between hero"><div><div class="muted small">${new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</div><h1>${greeting()}</h1></div>${acctSelect('acct', ui.acct, true)}</div>
+      <div class="dashbar"><div class="seg tabs">${tabs.map(([k, l]) => `<button class="${ui.dash === k ? 'on' : ''}" data-act="dash" data-v="${k}">${l}</button>`).join('')}</div>${ui.dash === 'calendar' ? '' : rangeBar()}</div>
+      ${body}`;
   }
 
   function appearance() {
@@ -513,14 +621,14 @@ const UI = (() => {
 
   function render() {
     applyTheme();
-    $('#nav').innerHTML = TABS.map(([k, l]) => (k === 'log'
-      ? `<button class="fab ${ui.tab === k ? 'on' : ''}" data-act="tab" data-v="${k}" aria-label="Log trade">${svgIcon(k)}</button>`
+    $('#nav').innerHTML = '<div class="brand"><span class="logo"></span>Trade Journal</div>' + TABS.map(([k, l]) => (k === 'log'
+      ? `<button class="fab ${ui.tab === k ? 'on' : ''}" data-act="tab" data-v="${k}" aria-label="Log trade">${svgIcon(k)}<span>${l}</span></button>`
       : `<button class="${ui.tab === k ? 'on' : ''}" data-act="tab" data-v="${k}">${svgIcon(k)}<span>${l}</span></button>`)).join('');
-    const views = { home: vHome, log: vLog, trades: vTrades, insights: vInsights, more: vMore };
+    const views = { home: vHome, log: vLog, trades: vTrades, prop: vProp, more: vMore };
     $('#app').innerHTML = `<div class="page">${views[ui.tab]()}</div>`;
     renderModal();
     if (ui.tab === 'log') { livePreview('n'); syncThumb('n'); }
-    if (ui.tab === 'insights' && ui.sub === 'prop') renderCalcResult();
+    if (ui.tab === 'prop') renderCalcResult();
   }
 
   function renderLock() {
@@ -623,7 +731,8 @@ const UI = (() => {
       case 'accent': D().settings.accent = v || null; await Store.save(); render(); break;
       case 'toggle-glow': D().settings.glow = !D().settings.glow; await Store.save(); render(); break;
       case 'text-size': D().settings.textSize = v; await Store.save(); render(); break;
-      case 'sub': ui.sub = v; render(); break;
+      case 'dash': ui.dash = v; render(); break;
+      case 'range': ui.range.preset = v; ui.range.from = ''; ui.range.to = ''; render(); break;
       case 'pin-set': {
         const pin = document.getElementById('pin-new').value.trim();
         if (!/^\d{4,12}$/.test(pin)) return toast('PIN must be 4 to 12 digits.', true);
@@ -666,6 +775,7 @@ const UI = (() => {
         const k = el.dataset.bind;
         if (k === 'calcAcct') { ui.calc.acct = el.value; renderCalcResult(); } else if (k === 'previewAcct') { ui.previewAcct = el.value; renderModal(); } else { ui[k] = el.value; render(); }
       }
+      if (el.dataset.range) { ui.range[el.dataset.range] = el.value; ui.range.preset = 'custom'; render(); }
       if (el.id === 'set-name') { D().settings.name = el.value.trim(); Store.save(); }
       if (el.id === 'imp-file' && el.files[0]) readText(el.files[0]).then(importText).catch((err) => toast(err.message, true)).finally(() => { el.value = ''; });
       if (el.id === 'restore-file' && el.files[0]) {

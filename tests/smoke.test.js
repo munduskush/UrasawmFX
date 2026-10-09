@@ -25,11 +25,11 @@ const errors = [];
   const text = () => d.getElementById('app').textContent;
   const go = async (tab, subTab) => { await click(`[data-act="tab"][data-v="${tab}"]`); if (subTab) await click(`[data-act="sub"][data-v="${subTab}"]`); };
 
-  ok('boots on Home dashboard with default account + empty state', text().includes('Today') && text().includes('Log a trade') && text().includes('No trades yet') && w.Store.data.accounts.length === 1);
+  ok('boots on Dashboard (Overview) with empty state', ['Overview', 'Time Metrics', 'Analytics', 'Calendar', 'Today'].every((x) => text().includes(x)) && text().includes('No trades in this range') && w.Store.data.accounts.length === 1);
   ok('nav has 5 buttons incl. center Log FAB', d.querySelectorAll('#nav button').length === 5 && !!d.querySelector('#nav .fab'));
   ok('default theme neon', d.documentElement.dataset.theme === 'neon');
-  await click('.cta');
-  ok('CTA opens Log screen', text().includes('New trade'));
+  await go('log');
+  ok('Log tab opens trade form', text().includes('New trade'));
 
   // --- log a trade (long, 2000 -> 2010, SL 1995, 0.1 lot => +100, 2R) ---
   setv('#n-entry', '2000'); setv('#n-exit', '2010'); setv('#n-sl', '1995'); setv('#n-tp', '2015'); setv('#n-lots', '0.1');
@@ -97,21 +97,33 @@ const errors = [];
   ok('wrong file shows error toast', d.getElementById('toast').textContent.includes('Unrecognized'));
 
   // --- every tab renders without errors ---
-  for (const tab of ['home', 'trades', 'log', 'insights', 'more']) { await go(tab); ok(`tab ${tab} renders`, d.getElementById('app').innerHTML.length > 200); }
+  for (const tab of ['home', 'trades', 'log', 'prop', 'more']) { await go(tab); ok(`tab ${tab} renders`, d.getElementById('app').innerHTML.length > 200); }
   await go('home');
-  ok('home with data: today, rings, prop, recent', ['Today', 'Discipline', 'Win rate', 'Green day', 'Prop accounts', 'Recent trades'].every((x) => text().includes(x)) && d.querySelectorAll('.ring').length === 2 && d.querySelectorAll('.trade').length === 5);
+  ok('home with data: today, rings, prop, recent', ['Today', 'Discipline', 'Win rate', 'Green day', 'Prop accounts', 'Recent trades'].every((x) => text().includes(x)) && d.querySelectorAll('.ring').length === 1 && d.querySelectorAll('.trade').length === 5);
   setv('select[data-bind="acct"]', w.Store.data.accounts[1].id);
   ok('home account filter shows only that account', d.querySelectorAll('.bar').length === 3 && text().includes('Goat'));
   setv('select[data-bind="acct"]', 'all');
-  await go('insights', 'stats');
-  ok('stats: metrics + equity chart + tables', ['Net P&L', 'Win rate', 'Profit factor', 'Max drawdown', 'By session', 'By day of week', 'By setup', 'Rules: followed vs broken', 'Mistakes'].every((s) => text().includes(s)) && d.querySelector('svg.chart polyline'));
-  setv('select[data-bind="days"]', '7');
-  ok('stats period filter re-renders', text().includes('Stats'));
-  await go('insights', 'prop');
+  await go('home');
+  ok('overview: cards, gauge, donuts, equity + daily bars', ['Realized P&L', 'Win rate', 'Avg win vs loss', 'Profit factor', 'Expected value', 'Avg trade time', 'Balance', 'Total fees', 'Max drawdown', 'Cumulative P&L', 'Daily P&L', 'Long vs short'].every((x) => text().includes(x)) && !!d.querySelector('.gauge .gf') && d.querySelectorAll('.donut').length >= 2 && !!d.querySelector('svg.chart polyline') && d.querySelectorAll('svg.bars rect').length > 0);
+  ok('info tooltips present', d.querySelectorAll('.info[title]').length >= 8);
+  await click('[data-act="dash"][data-v="time"]');
+  ok('time metrics tab', ['Avg trade time', 'Best session', 'P&L by session', 'P&L by weekday', 'P&L by hour'].every((x) => text().includes(x)) && d.querySelectorAll('svg.bars').length >= 3);
+  await click('[data-act="dash"][data-v="analytics"]');
+  ok('analytics tab', ['R-multiple distribution', 'By setup', 'Rules: followed vs broken', 'Mistakes'].every((x) => text().includes(x)));
+  await click('[data-act="dash"][data-v="overview"]');
+  await click('[data-act="range"][data-v="7"]');
+  ok('range preset 7D applies + highlighted', d.querySelector('[data-act="range"][data-v="7"]').classList.contains('on'));
+  setv('[data-range="from"]', '2099-01-01');
+  ok('custom range with no trades shows empty state', text().includes('No trades in this range') && w.UI.ui.range.preset === 'custom');
+  setv('[data-range="from"]', '2000-01-01'); setv('[data-range="to"]', '2099-12-31');
+  ok('custom wide range shows data again', text().includes('Realized P&L'));
+  await click('[data-act="range"][data-v="all"]');
+  ok('range reset to All', w.UI.ui.range.preset === 'all' && w.UI.ui.range.from === '');
+  await go('prop');
   ok('prop shows accounts + bars', d.querySelectorAll('.bar').length === 6 && text().includes('Goat') && text().includes('Daily loss today'));
   setv('[data-calc="risk"]', '1'); setv('[data-calc="entry"]', '2000'); setv('[data-calc="sl"]', '1995');
   ok('position size calc', /lots · risking/.test(d.getElementById('calc-out').textContent));
-  await go('insights', 'review');
+  await go('home'); await click('[data-act="dash"][data-v="calendar"]');
   ok('calendar + review template', d.querySelectorAll('.day').length >= 28 && text().includes('What went well') && text().includes('Week of'));
   setv('#rv-lessons', 'Wait for the sweep'); await click('[data-act="rev-save"]');
   ok('review saved', Object.values(w.Store.data.reviews)[0].lessons === 'Wait for the sweep');
@@ -162,10 +174,24 @@ const errors = [];
   const csv = w.Core.tradesToCsv(w.Store.data.trades, w.Store.data.accounts);
   ok('csv has header + one line per trade', csv.split('\n').length === before + 1);
 
+  // --- opened-at field drives trade-duration metrics ---
+  await go('log');
+  setv('#n-entry', '2000'); setv('#n-exit', '2004'); setv('#n-sl', '1996'); setv('#n-lots', '0.1');
+  setv('#n-opened', '2026-10-09T10:00'); setv('#n-closed', '2026-10-09T09:00');
+  await click('[data-act="save"][data-p="n"]');
+  ok('opened after closed rejected', d.getElementById('toast').textContent.includes('Opened time must be before closed'));
+  setv('#n-opened', '2026-10-09T08:00'); setv('#n-closed', '2026-10-09T09:30');
+  await click('[data-act="save"][data-p="n"]');
+  const timed = w.Store.data.trades.find((x) => x.openedAt && x.source === 'manual');
+  ok('trade saved with opened + closed times', !!timed && (new Date(timed.closedAt) - new Date(timed.openedAt)) === 90 * 60000);
+  await go('home'); await click('[data-act="dash"][data-v="time"]');
+  ok('avg trade time shows a duration on Time Metrics', /\d+h \d+m|\d+m/.test([...d.querySelectorAll('.stat')].find((e) => e.textContent.includes('Avg trade time')).textContent));
+  await click('[data-act="dash"][data-v="overview"]');
+
   // --- persistence: reload store from IndexedDB ---
   await w.Store.save(); const n = w.Store.data.trades.length; await w.Store.load();
   ok('data persists in IndexedDB', w.Store.data.trades.length === n);
-  ok('back handler: closes modal / returns to Log', (() => { w.UI.ui.tab = 'insights'; return w.handleBack() === true && w.UI.ui.tab === 'home' && w.handleBack() === false; })());
+  ok('back handler: closes modal / returns to Log', (() => { w.UI.ui.tab = 'prop'; return w.handleBack() === true && w.UI.ui.tab === 'home' && w.handleBack() === false; })());
 
   ok('no JS errors during the whole run', errors.length === 0);
   if (errors.length) console.log(errors.slice(0, 5).join('\n---\n'));
