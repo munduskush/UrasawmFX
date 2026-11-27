@@ -557,7 +557,7 @@ const UI = (() => {
       <h2>Import settings</h2><div class="row">
         <div class="field"><label>MT5 server time (hours from UTC)</label><input id="set-mt5" inputmode="decimal" value="${s.mt5Offset}"></div>
         <div class="field"><label>cTrader time (hours from UTC)</label><input id="set-ct" inputmode="decimal" value="${s.ctraderOffset}"></div>
-        <div class="field"><label>Lot size (oz per lot)</label><input id="set-contract" inputmode="decimal" value="${s.contract}"></div></div>
+        <div class="field"><label>Gold lot size (oz per lot)</label><input id="set-contract" inputmode="decimal" value="${s.contract}"></div></div>
       <button class="btn ghost" data-act="num-save">Save settings</button>
       <h2>Security</h2><div class="row">
         <input id="pin-new" type="password" inputmode="numeric" placeholder="New PIN (4+ digits)" class="pin">
@@ -587,7 +587,7 @@ const UI = (() => {
       pv.fresh = fresh;
       const noSl = fresh.filter((t) => t.r == null).length;
       body = `<h2>Import preview</h2><div class="field"><label>Import into account</label>${acctSelect('previewAcct', ui.previewAcct, false)}</div>
-        <p><b>${fresh.length}</b> new · ${pv.trades.length - fresh.length} already imported · ${pv.skipped.length} skipped${pv.otherSymbols ? ` · ${pv.otherSymbols} non-gold ignored` : ''}</p>
+        <p><b>${fresh.length}</b> new · ${pv.trades.length - fresh.length} already imported · ${pv.skipped.length} skipped</p>
         ${noSl ? `<p class="warn small">${noSl} have no usable SL. Open them from Trades (Needs SL) to add one and get R.</p>` : ''}
         ${pv.unitGuessed ? '<p class="warn small">Could not verify lot size from the file. Check lots on the first imported trade.</p>' : ''}
         ${pv.skipped.slice(0, 5).map((k) => `<div class="muted small">Skipped ${esc(k.ref)}: ${esc(k.reason)}</div>`).join('')}

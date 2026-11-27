@@ -59,8 +59,7 @@ function parseDateTime(s, offsetH, order = 'dmy') {
 // MT5 report times are BROKER SERVER time. Set this to your broker's UTC offset in hours
 // (many are +2 in winter / +3 in summer). It only affects the session tag.
 const SERVER_UTC_OFFSET_HOURS = 3;
-// Only gold is imported (covers XAUUSD, XAUUSD.r, GOLD...).
-const MT5_SYMBOL_FILTER = /XAU|GOLD/i;
+// All symbols are imported (gold, forex, indices...). Contract size comes from Core.contractFor.
 
 // Parses an MT5 "Positions" report saved as CSV/TSV. Columns are matched by name; the two
 // "Time" and two "Price" columns are open (first) and close (second).
@@ -97,7 +96,6 @@ function parseMt5Positions(text, offsetH = SERVER_UTC_OFFSET_HOURS) {
     const ref = c[col.pos] || `line ${i + 1}`;
     const type = (c[col.type] || '').toLowerCase();
     if (type !== 'buy' && type !== 'sell') { skipped.push({ ref, reason: `type "${type}"` }); continue; }
-    if (!MT5_SYMBOL_FILTER.test(c[col.symbol] || '')) { otherSymbols++; continue; }
 
     const openedAt = parseDateTime(c[col.openTime], offsetH);
     const closedAt = parseDateTime(c[col.closeTime], offsetH);
@@ -112,12 +110,14 @@ function parseMt5Positions(text, offsetH = SERVER_UTC_OFFSET_HOURS) {
     const sl = (col.sl >= 0 ? toNum(c[col.sl], d) : null) || null; // blank or 0 -> null
     const tp = (col.tp >= 0 ? toNum(c[col.tp], d) : null) || null;
     const direction = type === 'buy' ? 'long' : 'short';
-    const calc = Core.calcTrade({ direction, entry, exit, sl, tp, lots });
+    const contract = Core.contractFor(c[col.symbol]);
+    const calc = Core.calcTrade({ direction, entry, exit, sl, tp, lots, contract });
     const { plannedRR } = calc;
-    const net = profit + (col.comm >= 0 ? toNum(c[col.comm], d) || 0 : 0) + (col.swap >= 0 ? toNum(c[col.swap], d) || 0 : 0);
+    const fees = (col.comm >= 0 ? toNum(c[col.comm], d) || 0 : 0) + (col.swap >= 0 ? toNum(c[col.swap], d) || 0 : 0);
+    const net = profit + fees;
     trades.push({
       ticket: c[col.pos], source: 'mt5', instrument: c[col.symbol], direction, entry, exit, sl, tp, lots,
-      pnl: net, fees: net - calc.pnl,
+      pnl: net, fees,
       r: calc.r, plannedRR, session: Core.sessionFromUtcHour(new Date(openedAt).getUTCHours()),
       openedAt, closedAt,
     });
@@ -129,7 +129,6 @@ function parseMt5Positions(text, offsetH = SERVER_UTC_OFFSET_HOURS) {
 // cTrader export times follow the time zone set in the platform. 0 = UTC. Change if yours is local (Nairobi = 3).
 // It only affects the session tag.
 const CTRADER_UTC_OFFSET_HOURS = 0;
-const CT_SYMBOL_FILTER = /XAU|GOLD/i;
 
 // Parses a cTrader trade history export (Position ID, Symbol, Opening Direction, ... Net USD, Balance).
 // The export has no SL/TP, so imported trades have no R until you add an SL in the app.
@@ -158,31 +157,32 @@ function parseCtraderHistory(text, offsetH = CTRADER_UTC_OFFSET_HOURS) {
   }
   const order = detectDateOrder(rows.flatMap((r) => [r.c[col.openTime], r.c[col.closeTime]]));
 
-  // Is "Closing Quantity" in oz (units) or lots? Check against gross P&L: gross / move / qty ~ 1 (oz) or ~ 100 (lots).
-  let ozVotes = 0;
+  // Is "Closing Quantity" in units (oz / base currency) or lots? Check against gross P&L:
+  // gross / move / qty ~ 1 (units) or ~ contract size (lots). Indices (contract 1) can't be told apart: treated as lots.
+  let unitVotes = 0;
   let lotVotes = 0;
   if (col.gross >= 0) {
     for (const { c } of rows) {
-      if (!CT_SYMBOL_FILTER.test(c[col.symbol] || '')) continue;
+      const contract = Core.contractFor(c[col.symbol]);
+      if (contract === 1) continue;
       const sign = (c[col.dir] || '').toLowerCase() === 'buy' ? 1 : -1;
       const move = (toNum(c[col.exit], d) - toNum(c[col.entry], d)) * sign;
       const qty = toNum(c[col.qty], d);
       const gross = toNum(c[col.gross], d);
       if (!(Math.abs(move) > 1e-9) || !(qty > 0) || gross == null) continue;
       const ratio = gross / move / qty;
-      if (ratio > 0.3 && ratio < 3) ozVotes++;
-      else if (ratio > 30 && ratio < 300) lotVotes++;
+      if (ratio > 0.3 && ratio < 3) unitVotes++;
+      else if (ratio > contract * 0.3 && ratio < contract * 3) lotVotes++;
     }
   }
-  const qtyInLots = lotVotes > ozVotes;
-  const unitGuessed = ozVotes + lotVotes === 0;
+  const qtyInLots = lotVotes >= unitVotes && lotVotes > 0;
+  const unitGuessed = unitVotes + lotVotes === 0;
 
   const trades = [];
   const skipped = [];
   let otherSymbols = 0;
   for (const { c, line } of rows) {
     const pos = c[col.pos] || `line ${line}`;
-    if (!CT_SYMBOL_FILTER.test(c[col.symbol] || '')) { otherSymbols++; continue; }
     const dirRaw = (c[col.dir] || '').toLowerCase();
     if (dirRaw !== 'buy' && dirRaw !== 'sell') { skipped.push({ ref: pos, reason: `direction "${dirRaw}"` }); continue; }
     const openedAt = parseDateTime(c[col.openTime], offsetH, order);
@@ -196,11 +196,12 @@ function parseCtraderHistory(text, offsetH = CTRADER_UTC_OFFSET_HOURS) {
       continue;
     }
     const direction = dirRaw === 'buy' ? 'long' : 'short';
-    const lots = qtyInLots ? qty : qty / 100;
-    const calc = Core.calcTrade({ direction, entry, exit, sl: null, tp: null, lots });
+    const contract = Core.contractFor(c[col.symbol]);
+    const lots = qtyInLots || contract === 1 ? qty : qty / contract;
+    const fees = (col.comm >= 0 ? toNum(c[col.comm], d) || 0 : 0) + (col.swap >= 0 ? toNum(c[col.swap], d) || 0 : 0);
     trades.push({
       ticket: pos, source: 'ctrader', instrument: c[col.symbol], direction, entry, exit,
-      sl: null, tp: null, lots, pnl: net, fees: net - calc.pnl, r: null, plannedRR: null,
+      sl: null, tp: null, lots, pnl: net, fees, r: null, plannedRR: null,
       session: Core.sessionFromUtcHour(new Date(openedAt).getUTCHours()), openedAt, closedAt,
     });
   }

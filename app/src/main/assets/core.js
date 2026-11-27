@@ -15,6 +15,19 @@ const Core = (() => {
   // Rough sessions by UTC hour: Asia 21-07, London 07-12, NY 12-21.
   const sessionFromUtcHour = (h) => (h >= 7 && h < 12 ? 'London' : h >= 12 && h < 21 ? 'NY' : 'Asia');
 
+  // Contract size (units per 1.00 lot) by symbol. goldContract = the user's setting (default 100 oz).
+  // Index CFDs vary by broker (usually 1 per point per lot); edit here if yours differs.
+  function contractFor(symbol, goldContract = 100) {
+    const s = String(symbol || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (/XAU|GOLD/.test(s)) return goldContract;
+    if (/XAG|SILVER/.test(s)) return 5000;
+    if (/XTI|XBR|USOIL|UKOIL|WTI|BRENT|OIL/.test(s)) return 1000;
+    if (/BTC|ETH|LTC|XRP/.test(s)) return 1;
+    if (/NAS|US100|USTEC|NDX|SPX|US500|US30|DJI|DOW|GER|DAX|DE40|UK100|FTSE|JP225|NIK/.test(s)) return 1;
+    if (/^[A-Z]{6}$/.test(s)) return 100000; // forex pair
+    return 1;
+  }
+
   // XAUUSD: 1 lot = 100 oz (contract). fees = commission + swap (negative = cost).
   function calcTrade({ direction, entry, exit, sl, tp, lots, fees = 0, contract = 100 }) {
     const sign = direction === 'short' ? -1 : 1;
@@ -215,7 +228,7 @@ const Core = (() => {
   }
 
   return {
-    num, sum, avg, newId, pad, sessionFromUtcHour, calcTrade, lotsForRisk, localDateKey, toLocalInput, sortTrades,
+    num, sum, avg, newId, pad, sessionFromUtcHour, calcTrade, contractFor, lotsForRisk, localDateKey, toLocalInput, sortTrades,
     maxDrawdown, summarize, equityCurve, groupStats, DOW, dowOf, hourOf, bestWorstHours, adherenceKey, propStatus,
     dailyMap, dayStreak, monthGrid, periodRange, inRange, shiftPeriod, tradesToCsv,
   };
